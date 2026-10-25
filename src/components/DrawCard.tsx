@@ -31,7 +31,11 @@ export function DrawCard({ phase, message, roster, activityComplete, onStart, on
           <p className="loading-line"><LoaderCircle className="spin" size={18} aria-hidden="true" /> Checking for your saved pairing…</p>
         )}
 
-        {(phase.kind === 'idle' || phase.kind === 'signing_in' || phase.kind === 'ready' || phase.kind === 'drawing') && (
+        {phase.kind === 'signing_in' && phase.viaLink && (
+          <p className="loading-line"><LoaderCircle className="spin" size={18} aria-hidden="true" /> Opening your personal link…</p>
+        )}
+
+        {(phase.kind === 'idle' || (phase.kind === 'signing_in' && !phase.viaLink) || phase.kind === 'ready' || phase.kind === 'drawing') && (
           <>
             {phase.kind === 'drawing' && (
               <div className="shuffle" aria-hidden="true">

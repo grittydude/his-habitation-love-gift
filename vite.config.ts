@@ -18,6 +18,13 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'scripts',
+          environment: 'node',
+          include: ['tests/scripts/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
           name: 'db',
           environment: 'node',
           include: ['tests/db/**/*.test.ts'],

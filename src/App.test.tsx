@@ -107,7 +107,7 @@ describe('network failures', () => {
     expect(await screen.findByText('We couldn’t confirm your draw')).toBeInTheDocument();
     expect(screen.queryByText(/has been chosen/)).not.toBeInTheDocument();
     noReveal();
-    expect(screen.getByText(/Signed in as/)).toHaveTextContent('Ime Okon');
+    expect(screen.getByText('Welcome, Ime Okon!')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /choose a partner/i }));
     expect(await reveal()).toHaveTextContent('Your Love Gift partner has been chosen!');
@@ -216,5 +216,60 @@ describe('configuration', () => {
   it('explains when the site is not connected to a database', () => {
     render(<App api={null} />);
     expect(screen.getByRole('alert')).toHaveTextContent('This site isn’t connected yet');
+  });
+});
+
+describe('personal links', () => {
+  async function openLink(api: FakeLoveGiftApi, name: string, code = api.codeFor(name)) {
+    const user = userEvent.setup();
+    render(<App api={api} personalLink={{ memberId: api.member(name).id, code }} />);
+    return user;
+  }
+
+  it('signs the member in from their link — no name or code to enter', async () => {
+    const api = new FakeLoveGiftApi(NAMES);
+    const user = await openLink(api, 'Hope Bass');
+    expect(await screen.findByText('Welcome, Hope Bass!')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Your access code')).not.toBeInTheDocument();
+    expect(api.drawCalls).toBe(0);
+    await user.click(screen.getByRole('button', { name: /choose a partner/i }));
+    expect(await reveal()).toHaveTextContent('Your Love Gift partner has been chosen!');
+    expect(api.calls.signIn).toBe(1);
+  });
+
+  it('goes straight to the reveal when their partner already drew them', async () => {
+    const api = new FakeLoveGiftApi(NAMES);
+    api.pairOnServer('Ikechukwu Achom', 'Gladys HOTR');
+    await openLink(api, 'Gladys HOTR');
+    const card = await reveal();
+    expect(within(card).getByText('Your partner was already chosen')).toBeInTheDocument();
+    expect(within(card).getByRole('heading', { name: 'Ikechukwu Achom' })).toBeInTheDocument();
+    expect(api.drawCalls).toBe(0);
+  });
+
+  it('explains an old or wrong link and falls back to the normal form', async () => {
+    const api = new FakeLoveGiftApi(NAMES);
+    await openLink(api, 'Hope Bass', 'OLDCODE99');
+    expect(await screen.findByText('This link didn’t work')).toBeInTheDocument();
+    expect(screen.getByLabelText('Select your name')).toBeInTheDocument();
+  });
+
+  it('a link opened offline does not pretend to sign in', async () => {
+    const api = new FakeLoveGiftApi(NAMES);
+    api.failNext('signIn', { kind: 'network' });
+    await openLink(api, 'Hope Bass');
+    expect(await screen.findByText('No connection')).toBeInTheDocument();
+    expect(screen.getByText(/tap your link again/)).toBeInTheDocument();
+    noReveal();
+  });
+
+  it('a link wins over a different member’s saved session on the same phone', async () => {
+    const api = new FakeLoveGiftApi(NAMES);
+    const first = await setup(api);
+    await signInAndChoose(first.user, api, 'Ime Okon');
+    await reveal();
+    first.view.unmount();
+    await openLink(api, 'Hope Bass');
+    expect(await screen.findByText('Welcome, Hope Bass!')).toBeInTheDocument();
   });
 });

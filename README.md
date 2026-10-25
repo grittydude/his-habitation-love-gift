@@ -14,7 +14,7 @@ A single-page React + Vite site for the His Habitation choir's Love Gift Day. Ea
 2. [Security design](#security-design)
 3. [Project layout](#project-layout)
 4. [Setup: Supabase](#1-create-the-supabase-project)
-5. [Access codes](#3-issue-access-codes)
+5. [Personal links](#3-send-personal-links)
 6. [Run locally](#4-run-locally)
 7. [Tests](#tests)
 8. [Deploy (Vercel / Netlify)](#5-deploy)
@@ -26,7 +26,7 @@ A single-page React + Vite site for the His Habitation choir's Love Gift Day. Ea
 
 ## How it works
 
-1. A member picks their name, enters their access code and taps **Choose a Partner**.
+1. A member taps the **personal link** the organiser sent them (or picks their name and types the code from it) and taps **Choose a Partner**. The link carries their member id and code in the URL fragment (`#m=…&k=…`), which browsers never send to a server or to WhatsApp's link preview. The app reads it once and immediately removes it from the address bar.
 2. `member_sign_in` checks the code against its bcrypt hash and returns a random 256-bit session token (2-hour lifetime). The database stores only the token's SHA-256 digest.
 3. `draw_partner(token)` works out the member **from the token** (never from an id the browser sends) and then:
    - if the member is already paired, possibly by someone else, it returns that partner (`existing`);
@@ -123,25 +123,30 @@ select pubname, tablename from pg_publication_tables
 
 If the realtime row is missing, go to **Database → Publications → supabase_realtime** and enable `activity_progress`.
 
-## 3. Issue access codes
+## 3. Send personal links
 
-1. Copy `.env.admin.example` to `.env.admin.local` and fill in `SUPABASE_URL` and the **service_role** (or **secret**) key from **Project Settings → API**. This file is git-ignored. Never upload it to Vercel/Netlify and never prefix it with `VITE_`.
-2. Install dependencies, then generate codes for every member who doesn't have one yet:
+Each member gets a personal link. Tapping it signs them in, so there's nothing to type or remember. (The 8-character code inside the link also works on its own, typed into the form.)
 
-   ```bash
-   npm install
-   ```
+1. Copy `.env.admin.example` to `.env.admin.local` and fill in:
+   - `SUPABASE_URL` and the **service_role** key (**Project Settings → API**);
+   - `SITE_URL`: the live `https://` address of the site (used to build the links).
+
+   This file is git-ignored. Never upload it to Vercel/Netlify and never prefix it with `VITE_`.
+2. *(Optional)* To make each WhatsApp button open that person's chat directly, create `private/phones.csv` with one `Exact Name,+234…` line per member.
+3. Generate links for every member who doesn't have one yet:
 
    ```bash
    npm run codes:provision
    ```
 
-3. The codes are written to `private/access-codes-<timestamp>.csv` (git-ignored). Send each member **only their own** code in a private message, then delete the file.
-4. Lost or leaked code? Re-issue just that person's. Their old code and sessions stop working; their pairing is unaffected:
+4. Open `private/send-links-<timestamp>.html` in your browser (on a computer with WhatsApp Desktop/Web, or on your phone). Each member has a ready-written message with **Copy message** and **Open WhatsApp** buttons and a **Sent** tick box. Send each message **only to that person**, never to the group, then delete the `private/` files. The same messages are also in `private/access-codes-<timestamp>.csv`.
+5. Lost or leaked link? Re-issue just that person's. Their old link, code and sessions stop working; their pairing is unaffected:
 
    ```bash
    npm run codes:provision -- --member "Hope Bass"
    ```
+
+   To regenerate everyone's links (only before sending any), add `--all --yes`.
 
 ## 4. Run locally
 
@@ -242,6 +247,7 @@ From your computer: `npm run pairings:export` writes the full history to `privat
 | "We couldn't load the choir list" | Wrong URL or key, project paused (free tier pauses after inactivity: **Restore** in the dashboard), or migrations not run. |
 | `function public.list_members() does not exist` | Run the schema migration (step 2). |
 | Migration error: "old v1 starter schema is installed" | The previous `setup.sql` was run. Run `supabase/drop_v1_starter.sql`, then both migrations. It refuses to drop a non-empty v1 pairings table. |
+| A link says "This link didn't work" | It's an old link (codes were re-issued after it was sent). Re-issue that person's link with `--member`. |
 | Everyone's code is "invalid" | Codes not provisioned on *this* project (check `admin_access_code_status()`), or `.env.admin.local` pointed at another project. |
 | Progress shows "Reconnecting…" forever | `activity_progress` isn't in the `supabase_realtime` publication (see step 2 check). The numbers still update via polling. |
 | CSP errors in the console | You're using a custom Supabase domain: add it to `connect-src`. |

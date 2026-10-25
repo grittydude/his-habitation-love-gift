@@ -50,8 +50,9 @@ export function SignInForm({ roster, busy, session, activityComplete, onSubmit, 
   if (session) {
     return (
       <form className="signin" onSubmit={submit} noValidate>
+        <p className="signin__welcome">Welcome, {session.member.name}!</p>
         <p className="signin__who">
-          Signed in as <strong>{session.member.name}</strong>
+          {activityComplete ? 'Tap below to see your partner.' : 'Tap below when you’re ready — your partner is chosen at random and saved straight away.'}
           <button type="button" className="link-button" onClick={onSignOut}>Not you?</button>
         </p>
         {button}
@@ -116,7 +117,7 @@ export function SignInForm({ roster, busy, session, activityComplete, onSubmit, 
             onChange={(e) => { setCode(formatAccessCodeInput(e.target.value)); setErrors((x) => ({ ...x, code: undefined })); }}
           />
         </div>
-        <p className="field__hint" id={ids.codeHint}>Your personal code was sent to you privately by the choir organiser.</p>
+        <p className="field__hint" id={ids.codeHint}>Tap the personal link the organiser sent you, or type the 8-character code from it.</p>
         {errors.code && <p className="field__error" id={ids.codeErr}>{errors.code}</p>}
       </div>
       {button}

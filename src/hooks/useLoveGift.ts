@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 import { isNetworkError } from '../lib/errors';
+import type { PersonalLink } from '../lib/personalLink';
 import { clearSession, loadSession, saveSession } from '../lib/sessionStore';
-import type { LoveGiftApi, Pairing, Session } from '../types/loveGift';
+import type { LoveGiftApi, Pairing, Session, SignInResult } from '../types/loveGift';
 
 export type RevealOrigin = 'created' | 'existing' | 'restored' | 'live';
 
 export type Phase =
   | { kind: 'restoring' }
   | { kind: 'idle' }
-  | { kind: 'signing_in' }
+  | { kind: 'signing_in'; viaLink?: boolean }
   | { kind: 'ready'; session: Session }
   | { kind: 'drawing'; session: Session }
   | { kind: 'revealed'; session: Session; pairing: Pairing; origin: RevealOrigin }
@@ -54,7 +55,30 @@ function serverMessage(): UiMessage {
   return { tone: 'error', title: 'Something went wrong on our side', body: 'Please try again in a moment. If it keeps happening, let the choir organiser know.' };
 }
 
-export function useLoveGift(api: LoveGiftApi) {
+function signInFailure(res: Exclude<SignInResult, { status: 'ok' }>, viaLink: boolean): UiMessage {
+  if (res.status === 'locked') {
+    const minutes = Math.max(1, Math.ceil(res.retryAfterSeconds / 60));
+    return { tone: 'error', title: 'Too many attempts', body: `For safety, sign-in for this name is paused. Please try again in about ${minutes} minute${minutes === 1 ? '' : 's'}, or ask the choir organiser for help.` };
+  }
+  if (viaLink) {
+    return { tone: 'error', title: 'This link didn’t work', body: 'It may be an old link. Please ask the choir organiser to send you a new one.' };
+  }
+  return {
+    tone: 'error',
+    title: 'That name and access code don’t match',
+    body: res.attemptsRemaining !== undefined
+      ? `Please check your code and try again. ${res.attemptsRemaining} attempt${res.attemptsRemaining === 1 ? '' : 's'} left before a short pause.`
+      : 'Please check your code and try again.',
+  };
+}
+
+const OFFLINE_SIGN_IN: UiMessage = { tone: 'warning', title: 'No connection', body: 'We couldn’t reach the server. Check your internet connection and try again.' };
+
+/**
+ * @param personalLink credentials from a personal sign-in link, read from the
+ *   URL once at start-up; signs the member in automatically.
+ */
+export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null = null) {
   const [state, dispatch] = useReducer(reducer, { phase: { kind: 'restoring' }, message: null });
   // Latest phase for async callbacks (which must not capture a stale render).
   const phaseRef = useRef<Phase>(state.phase);
@@ -89,35 +113,60 @@ export function useLoveGift(api: LoveGiftApi) {
     }
   }, [api, resetToSignIn]);
 
-  // On load, recover from the server (never from local state) who this
-  // browser's member is paired with.
+  // Ask the server (never local state) whether this member is already paired.
+  const showPairing = useCallback(async (session: Session, isCurrent: () => boolean, origin: RevealOrigin = 'restored') => {
+    try {
+      const res = await api.getMyPairing(session.token);
+      if (!isCurrent()) return;
+      if (res.status === 'paired') dispatch({ type: 'phase', phase: { kind: 'revealed', session, pairing: res.pairing, origin } });
+      else if (res.status === 'unpaired') dispatch({ type: 'phase', phase: { kind: 'ready', session } });
+      else resetToSignIn(null);
+    } catch (error) {
+      if (!isCurrent()) return;
+      dispatch({
+        type: 'phase',
+        phase: { kind: 'ready', session },
+        message: isNetworkError(error)
+          ? { tone: 'warning', title: 'You seem to be offline', body: 'We couldn’t check your pairing. Reconnect and tap “Choose a Partner” — it will show your saved partner if you already have one.' }
+          : serverMessage(),
+      });
+    }
+  }, [api, resetToSignIn]);
+
+  // Personal link: sign in once. A ref (not the effect's cleanup) guards it,
+  // so React StrictMode's double effect run can't spend two sign-in attempts.
+  const linkHandled = useRef(false);
   useEffect(() => {
+    if (!personalLink || linkHandled.current) return;
+    linkHandled.current = true;
+    dispatch({ type: 'phase', phase: { kind: 'signing_in', viaLink: true } });
+    api.signIn(personalLink.memberId, personalLink.code).then(
+      (res) => {
+        if (res.status !== 'ok') {
+          resetToSignIn(signInFailure(res, true));
+          return;
+        }
+        saveSession(res.session);
+        void showPairing(res.session, () => true, 'existing');
+      },
+      (error) => {
+        dispatch({ type: 'phase', phase: { kind: 'idle' }, message: isNetworkError(error) ? { ...OFFLINE_SIGN_IN, body: 'We couldn’t reach the server. Check your internet connection, then tap your link again.' } : serverMessage() });
+      },
+    );
+  }, [api, personalLink, resetToSignIn, showPairing]);
+
+  // No link: recover this browser's session, if any.
+  useEffect(() => {
+    if (personalLink) return;
     let cancelled = false;
     const session = loadSession();
     if (!session) {
       dispatch({ type: 'phase', phase: { kind: 'idle' } });
       return;
     }
-    api.getMyPairing(session.token).then(
-      (res) => {
-        if (cancelled) return;
-        if (res.status === 'paired') dispatch({ type: 'phase', phase: { kind: 'revealed', session, pairing: res.pairing, origin: 'restored' } });
-        else if (res.status === 'unpaired') dispatch({ type: 'phase', phase: { kind: 'ready', session } });
-        else resetToSignIn(null);
-      },
-      (error) => {
-        if (cancelled) return;
-        dispatch({
-          type: 'phase',
-          phase: { kind: 'ready', session },
-          message: isNetworkError(error)
-            ? { tone: 'warning', title: 'You seem to be offline', body: 'We couldn’t check your pairing. Reconnect and tap “Choose a Partner” — it will show your saved partner if you already have one.' }
-            : serverMessage(),
-        });
-      },
-    );
+    void showPairing(session, () => !cancelled);
     return () => { cancelled = true; };
-  }, [api, resetToSignIn]);
+  }, [personalLink, showPairing]);
 
   /** Sign in with name + code, then draw (or recover the existing pair). */
   const start = useCallback(async (memberId: string, accessCode: string) => {
@@ -137,33 +186,12 @@ export function useLoveGift(api: LoveGiftApi) {
         dispatch({
           type: 'phase',
           phase: { kind: 'idle' },
-          message: isNetworkError(error)
-            ? { tone: 'warning', title: 'No connection', body: 'We couldn’t reach the server. Check your internet connection and try again.' }
-            : serverMessage(),
+          message: isNetworkError(error) ? OFFLINE_SIGN_IN : serverMessage(),
         });
         return;
       }
-      if (res.status === 'invalid_credentials') {
-        dispatch({
-          type: 'phase',
-          phase: { kind: 'idle' },
-          message: {
-            tone: 'error',
-            title: 'That name and access code don’t match',
-            body: res.attemptsRemaining !== undefined
-              ? `Please check your code and try again. ${res.attemptsRemaining} attempt${res.attemptsRemaining === 1 ? '' : 's'} left before a short pause.`
-              : 'Please check your code and try again.',
-          },
-        });
-        return;
-      }
-      if (res.status === 'locked') {
-        const minutes = Math.max(1, Math.ceil(res.retryAfterSeconds / 60));
-        dispatch({
-          type: 'phase',
-          phase: { kind: 'idle' },
-          message: { tone: 'error', title: 'Too many attempts', body: `For safety, sign-in for this name is paused. Please try again in about ${minutes} minute${minutes === 1 ? '' : 's'}, or ask the choir organiser for help.` },
-        });
+      if (res.status !== 'ok') {
+        dispatch({ type: 'phase', phase: { kind: 'idle' }, message: signInFailure(res, false) });
         return;
       }
       saveSession(res.session);

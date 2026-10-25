@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "test:ui": "vitest run --project ui",
+    "test:ui": "vitest run --project ui --project scripts",
     "test:db": "vitest run --project db",
     "codes:provision": "node scripts/provision-codes.mjs",
     "pairings:export": "node scripts/export-pairings.mjs"

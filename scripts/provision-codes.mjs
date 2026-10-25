@@ -7,12 +7,18 @@
 //
 // Codes are generated here with a CSPRNG, sent once over HTTPS to the
 // service-role-only RPC (which stores a bcrypt hash and discards the
-// plaintext), and written to ./private/access-codes-*.csv for you to
-// distribute privately. Re-issuing a code invalidates that member's old code
-// and signs out their existing sessions. Pairings are never affected.
+// plaintext). For each member it also builds a personal sign-in link and a
+// ready-to-send WhatsApp message, written to ./private/ (git-ignored):
+//   access-codes-*.csv   name, code, link, message
+//   send-links-*.html    open in a browser: Copy / Open WhatsApp per member
+// Optional: ./private/phones.csv ("Exact Name,+234...") makes each WhatsApp
+// button open that person's chat directly.
+// Re-issuing a code invalidates that member's old code AND link, and signs out
+// their existing sessions. Pairings are never affected.
 import { randomInt } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { adminClient, call, writePrivateCsv } from './lib/admin.mjs';
+import { loadPhones, personalLink, whatsappMessage, whatsappUrl, writeSendPage } from './lib/messages.mjs';
 
 // No 0/O, 1/I/L: easy to read aloud and type on a phone. 31^8 ≈ 8.5e11 codes.
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -32,6 +38,11 @@ const { values } = parseArgs({
 });
 
 const client = adminClient();
+const siteUrl = process.env.SITE_URL;
+if (!siteUrl || !/^https:\/\//.test(siteUrl)) {
+  console.error('Set SITE_URL in .env.admin.local to the live https:// address of the site (used to build personal links).');
+  process.exit(1);
+}
 const status = await call(client, 'admin_access_code_status');
 
 let targets;
@@ -71,7 +82,24 @@ const result = await call(client, 'admin_provision_access_codes', {
   p_codes: issued.map(({ member_id, code }) => ({ member_id, code })),
 });
 
-const file = writePrivateCsv('access-codes', ['name', 'access_code'], issued.map((i) => [i.name, i.code]));
+const phones = loadPhones();
+const entries = issued.map((i) => {
+  const link = personalLink(siteUrl, i.member_id, i.code);
+  const message = whatsappMessage(i.name, link);
+  const phone = phones.get(i.name);
+  return { ...i, memberId: i.member_id, link, message, phone, whatsapp: whatsappUrl(message, phone) };
+});
+
+const file = writePrivateCsv(
+  'access-codes',
+  ['name', 'access_code', 'personal_link', 'whatsapp_message'],
+  entries.map((e) => [e.name, e.code, e.link, e.message]),
+);
+const page = file.replace(/access-codes-(.*)\.csv$/, 'send-links-$1.html');
+writeSendPage(page, entries);
+
 console.log(`Registered ${result.provisioned} access code(s).`);
-console.log(`Codes saved to ${file}`);
-console.log('Send each member ONLY their own code (e.g. a private WhatsApp message), then delete the file.');
+console.log(`Send page: ${page}   (open it in your browser)`);
+console.log(`Spreadsheet: ${file}`);
+if (phones.size) console.log(`Phone numbers found for ${entries.filter((e) => e.phone).length} of ${entries.length} member(s).`);
+console.log('Send each member ONLY their own message, then delete both files.');

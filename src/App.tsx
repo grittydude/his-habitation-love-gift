@@ -8,12 +8,13 @@ import { SiteFooter } from './components/SiteFooter';
 import { useActivityProgress } from './hooks/useActivityProgress';
 import { useLoveGift } from './hooks/useLoveGift';
 import { useMembers } from './hooks/useMembers';
+import type { PersonalLink } from './lib/personalLink';
 import type { LoveGiftApi } from './types/loveGift';
 
-function Activity({ api }: { api: LoveGiftApi }) {
+function Activity({ api, personalLink }: { api: LoveGiftApi; personalLink: PersonalLink | null }) {
   const roster = useMembers(api);
   const progress = useActivityProgress(api);
-  const gift = useLoveGift(api);
+  const gift = useLoveGift(api, personalLink);
   const { recheck } = gift;
   const { refresh } = progress;
   const pairedMembers = progress.progress?.pairedMembers;
@@ -60,14 +61,14 @@ function SetupNotice() {
   );
 }
 
-export default function App({ api }: { api: LoveGiftApi | null }) {
+export default function App({ api, personalLink = null }: { api: LoveGiftApi | null; personalLink?: PersonalLink | null }) {
   return (
     <>
       <a className="skip-link" href="#draw">Skip to partner selection</a>
       <Hero />
       <main>
         <section id="draw" className="draw-section" aria-label="Choose your Love Gift partner">
-          {api ? <Activity api={api} /> : <SetupNotice />}
+          {api ? <Activity api={api} personalLink={personalLink} /> : <SetupNotice />}
         </section>
         <HowItWorks />
       </main>
