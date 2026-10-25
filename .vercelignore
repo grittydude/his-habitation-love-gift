@@ -1,0 +1,11 @@
+# Never upload organiser secrets or generated codes to Vercel.
+.env
+.env.*
+!.env.example
+!.env.admin.example
+*.local
+private/
+supabase/.temp/
+node_modules/
+dist/
+coverage/
