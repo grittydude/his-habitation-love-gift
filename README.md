@@ -204,7 +204,7 @@ If you use a **custom Supabase domain**, add it to `connect-src` in `vercel.json
 
 ## Production verification checklist
 
-Do this on the live HTTPS URL **before** sending codes. Use the [rehearsal reset](#organiser-operations) afterwards.
+Do this on the live HTTPS URL **before** sending codes. Clear it afterwards from the [organiser console](#organiser-console-admin).
 
 - [ ] Page loads on an Android phone (Chrome) and on a desktop browser; the name list shows all 24 names.
 - [ ] Progress shows **0 of 12 pairs made** and a green **Live** chip.
@@ -215,9 +215,32 @@ Do this on the live HTTPS URL **before** sending codes. Use the [rehearsal reset
 - [ ] In the browser devtools Network tab, responses never contain other members' pairings, hashes or the service-role key.
 - [ ] With the anon key, `GET https://<project>.supabase.co/rest/v1/pairings` returns a permission error, not data.
 - [ ] `npm run pairings:export` lists the test pair with a UTC timestamp.
-- [ ] Run the rehearsal reset, re-issue codes if they were shared during testing, then distribute.
+- [ ] Open `/admin`, check the test pairs appear, then **Clear all pairings**. Re-issue the links of anyone whose link went to someone else during testing, then distribute.
 
 ## Organiser operations
+
+### Organiser console: `/admin`
+
+Open `https://<your site>/admin` (it isn't linked from the public page and is marked `noindex`). Sign in with the organiser passphrase to:
+
+- see **every pairing**: who's paired with whom, who drew, and when (updates live);
+- see who **isn't paired yet** and who is paused after wrong codes;
+- **Download CSV** of the full history;
+- **Clear all pairings** after testing. Type `RESET ALL PAIRINGS` to enable the button. This deletes every pairing, signs every member out and clears wrong-code pauses. Members' links keep working, so the real draw can start straight away. It can't be undone.
+
+Set or change the passphrase from the organiser computer (needs `.env.admin.local`):
+
+```bash
+npm run admin:passphrase
+```
+
+A generated passphrase is saved to `private/admin-passphrase.txt`. Move it to your password manager and delete the file. To choose your own instead: `npm run admin:passphrase -- --passphrase "a long sentence you'll remember"` (12+ characters). Changing it signs out any open console session.
+
+Console sessions last 30 minutes. Five wrong passphrases pause the console for 15 minutes; the SQL Editor commands below always work. Only a bcrypt hash of the passphrase is stored, and every console sign-in, view and reset is logged in `private.admin_events`.
+
+> Opening the console shows you everyone's partner, including your own if you're taking part.
+
+### SQL Editor
 
 Run these in the Supabase **SQL Editor** (they run as the database owner and are not reachable through the public API):
 
@@ -252,6 +275,8 @@ From your computer: `npm run pairings:export` writes the full history to `privat
 | Progress shows "Reconnecting…" forever | `activity_progress` isn't in the `supabase_realtime` publication (see step 2 check). The numbers still update via polling. |
 | CSP errors in the console | You're using a custom Supabase domain: add it to `connect-src`. |
 | `provision-codes` says "permission denied" | You used the anon key; use the service-role / secret key. |
+| `/admin` says the passphrase hasn't been set | Run `npm run admin:passphrase`. |
+| `/admin` is paused after wrong passphrases | Wait 15 minutes, or set a new passphrase with `npm run admin:passphrase` (this also clears the pause). |
 | A member is locked out | `select private.admin_unlock_member(...)` (above). |
 | A member lost their code | `npm run codes:provision -- --member "Exact Name"`. |
 | `npm run test:db` fails on Linux CI as root | Run as a non-root user or set `TEST_DATABASE_URL`. |

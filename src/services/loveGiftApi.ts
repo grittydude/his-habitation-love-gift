@@ -6,7 +6,7 @@ import type {
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
-type Json = Record<string, unknown>;
+export type Json = Record<string, unknown>;
 
 function asMember(value: unknown): Member {
   const m = value as Json | null;
@@ -75,9 +75,11 @@ export function parseMyPairing(row: Json): MyPairingResult {
   throw new ApiError('server', 'Unexpected pairing response.');
 }
 
-/** Supabase implementation: every call is an RPC; no table is read directly. */
-export function createSupabaseApi(client: SupabaseClient): LoveGiftApi {
-  async function rpc<T>(fn: string, args?: Json): Promise<T> {
+export type Rpc = <T>(fn: string, args?: Json) => Promise<T>;
+
+/** Calls a Postgres function, mapping failures to ApiError('network' | 'server'). */
+export function createRpc(client: SupabaseClient): Rpc {
+  return async function rpc<T>(fn: string, args?: Json): Promise<T> {
     let result;
     try {
       result = await client.rpc(fn, args).abortSignal(AbortSignal.timeout(REQUEST_TIMEOUT_MS));
@@ -94,7 +96,12 @@ export function createSupabaseApi(client: SupabaseClient): LoveGiftApi {
     }
     if (data === null || data === undefined) throw new ApiError('server', 'The server returned no data.');
     return data as T;
-  }
+  };
+}
+
+/** Supabase implementation: every call is an RPC; no table is read directly. */
+export function createSupabaseApi(client: SupabaseClient): LoveGiftApi {
+  const rpc = createRpc(client);
 
   return {
     async listMembers() {

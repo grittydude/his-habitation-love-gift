@@ -13,7 +13,8 @@
     "test:ui": "vitest run --project ui --project scripts",
     "test:db": "vitest run --project db",
     "codes:provision": "node scripts/provision-codes.mjs",
-    "pairings:export": "node scripts/export-pairings.mjs"
+    "pairings:export": "node scripts/export-pairings.mjs",
+    "admin:passphrase": "node scripts/set-admin-passphrase.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
