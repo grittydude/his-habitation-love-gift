@@ -1,6 +1,6 @@
 # His Habitation · Love Gift Day
 
-A single-page React + Vite site for the His Habitation choir's Love Gift Day. Each of the 24 members signs in with a personal access code and is randomly paired with exactly one other member, giving 12 unique pairs. A pair is saved for **both** people the moment either of them draws. If your partner drew you before you visited, signing in just shows you who it is.
+A single-page React + Vite site for the His Habitation choir's Love Gift Day. Each of the 30 members opens a personal link and is randomly paired with exactly one other member, giving 15 unique pairs. A pair is saved for **both** people the moment either of them draws; the partner who was drawn first still presses the button and gets their own reveal.
 
 - **Frontend:** React 18, TypeScript, plain CSS (no UI framework), `lucide-react` icons.
 - **Backend:** Supabase Postgres. All logic lives in SQL functions called over RPC. There are no Edge Functions (see [why](#why-no-edge-function)).
@@ -37,7 +37,7 @@ A single-page React + Vite site for the His Habitation choir's Love Gift Day. Ea
 
 ### Why the pairing can't race
 
-Every write to `pairings` goes through `draw_partner`, and every call takes the same `pg_advisory_xact_lock` before reading the pool. The function is `VOLATILE`, so under `READ COMMITTED` each statement after the lock gets a fresh snapshot. That snapshot includes the pair committed by the previous lock holder, because the lock is only released at its `COMMIT`. A second simultaneous request therefore re-checks and either gets the same pair back (same member) or draws from the smaller pool (different member). With 24 people, serialising draws costs milliseconds. The `pair_memberships` primary key, the `member_a < member_b` check and the `member_a <> member_b` check are hard database backstops.
+Every write to `pairings` goes through `draw_partner`, and every call takes the same `pg_advisory_xact_lock` before reading the pool. The function is `VOLATILE`, so under `READ COMMITTED` each statement after the lock gets a fresh snapshot. That snapshot includes the pair committed by the previous lock holder, because the lock is only released at its `COMMIT`. A second simultaneous request therefore re-checks and either gets the same pair back (same member) or draws from the smaller pool (different member). With 30 people, serialising draws costs milliseconds. The `pair_memberships` primary key, the `member_a < member_b` check and the `member_a <> member_b` check are hard database backstops.
 
 ## Security design
 
@@ -75,7 +75,7 @@ src/
   test/            jsdom test setup + in-memory fake API
 supabase/
   migrations/      20261025000100_love_gift_schema.sql  (schema, RLS, functions)
-                   20261025000200_love_gift_roster.sql  (the 24 names; idempotent)
+                   20261025000200_love_gift_roster.sql  (the 30 names; idempotent)
   drop_v1_starter.sql   one-off cleanup if the old starter setup.sql was ever run
 scripts/           organiser-only: provision-codes.mjs, export-pairings.mjs
 tests/db/          real-PostgreSQL integration tests
@@ -115,8 +115,8 @@ Both files are safe to re-run. They never duplicate members or touch existing pa
 **Check it worked** (SQL Editor):
 
 ```sql
-select count(*) from public.members;                          -- 24
-select * from public.get_activity_progress();                 -- 0 of 12 pairs
+select count(*) from public.members;                          -- 30
+select * from public.get_activity_progress();                 -- 0 of 15 pairs
 select pubname, tablename from pg_publication_tables
  where tablename = 'activity_progress';                        -- 1 row (realtime on)
 ```
@@ -171,7 +171,7 @@ npm test
 This runs both suites:
 
 - **`ui`** (jsdom, ~20 s): app flows against an in-memory fake API: validation, new and existing reveals, refresh recovery, dropped connections (including "the draw committed but the response was lost"), wrong codes, realtime updates, reconnects, and out-of-order responses.
-- **`db`** (~2.5 min): boots a real throwaway **PostgreSQL 18** from the `embedded-postgres` npm binaries (no Docker), applies the migrations with Supabase-style roles and default grants, and tests pairing, concurrency (24 simultaneous draws, same-member races, lock-contention races), integrity constraints, append-only history, RLS, authorisation, rate limiting and session handling.
+- **`db`** (~2.5 min): boots a real throwaway **PostgreSQL 18** from the `embedded-postgres` npm binaries (no Docker), applies the migrations with Supabase-style roles and default grants, and tests pairing, concurrency (every member drawing at once, same-member races, lock-contention races), integrity constraints, append-only history, RLS, authorisation, rate limiting and session handling.
 
 Run one suite with `npm run test:ui` or `npm run test:db`. To run the DB suite against another Postgres (e.g. `npx supabase start`), set a superuser URL:
 
@@ -206,10 +206,10 @@ If you use a **custom Supabase domain**, add it to `connect-src` in `vercel.json
 
 Do this on the live HTTPS URL **before** sending codes. Clear it afterwards from the [organiser console](#organiser-console-admin).
 
-- [ ] Page loads on an Android phone (Chrome) and on a desktop browser; the name list shows all 24 names.
-- [ ] Progress shows **0 of 12 pairs made** and a green **Live** chip.
+- [ ] Page loads on an Android phone (Chrome) and on a desktop browser; the name list shows all 30 names.
+- [ ] Progress shows **0 of 15 pairs made** and a green **Live** chip.
 - [ ] Wrong code → "don't match" message; five wrong codes → "Too many attempts".
-- [ ] Member A signs in → sees a partner (B). The progress on a *second* device goes to 1 of 12 without refreshing.
+- [ ] Member A signs in → sees a partner (B). The progress on a *second* device goes to 1 of 15 without refreshing.
 - [ ] Refresh on A's device → "Welcome back" with B.
 - [ ] B signs in on another phone → sees A with "drew your name before you arrived". Pairs stay at 1.
 - [ ] In the browser devtools Network tab, responses never contain other members' pairings, hashes or the service-role key.

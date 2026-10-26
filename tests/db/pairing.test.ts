@@ -6,11 +6,39 @@ import {
 } from './harness';
 
 const ROSTER = [
-  'Ikechukwu Achom', 'Bassey HOTR', 'Emmanuel Frank HOTR', 'Miss Imaobong HOTR', 'Uyime HOTR', 'Abia',
-  'Akpan Mkpouto', 'Asuquo Mtn', 'Buddy', 'Choir Tailor', 'Faith Muss', 'Fortune HOTR', 'Gladys HOTR',
-  'Hope Bass', 'Ime Okon', 'Kenneth Drummer 2', 'Mkpongke Main', 'Mrs Patience HOTR', 'Mrs Ruth HOTR',
-  'Nsisong Bro Udofia HOTR', 'Samuel A', 'Uche His Habitation', 'Victoria His Habitation', 'Victory HOTR',
+  'Ikechukwu Achom',
+  'Bassey Edoho',
+  'Emmanuel Frank',
+  'Imaobong Tommy',
+  'Uyime HOTR',
+  'Abia Sunday',
+  'Akpan Mkpouto',
+  'Asuquo Great',
+  'Hilda Joseph',
+  'Miracle Nsima',
+  'Faith Musa',
+  'Fortune Promise',
+  'Gladys Nyanor',
+  'Hope Akpan',
+  'Ime Okon',
+  'Kenneth Osaru',
+  'Inyang, Mkpongke-obong',
+  'Mrs Patience',
+  'Mrs Ruth',
+  'Nsisong Udofia',
+  'Samuel Mbang',
+  'Uche Kingston',
+  'Victoria Abas',
+  'Victory Ogarekpe',
+  'Benjamin Udom',
+  'Utibe Meshach',
+  'Mrs Victoria Itoro Umoh',
+  'Precious',
+  'Godwin Edoho',
+  'Victor Emmanuel',
 ];
+const N = ROSTER.length;          // 30
+const PAIRS = Math.floor(N / 2);  // 15
 
 interface DrawResult {
   status: 'created' | 'existing' | 'no_partner_available' | 'invalid_session';
@@ -56,10 +84,10 @@ async function assertLedgerConsistent() {
 }
 
 describe('roster and schema', () => {
-  it('seeds exactly the 24 approved names, Gladys once', async () => {
+  it('seeds exactly the approved roster, each name once', async () => {
     expect(members.map((m) => m.name).sort()).toEqual([...ROSTER].sort());
-    expect(members.filter((m) => m.name === 'Gladys HOTR')).toHaveLength(1);
-    expect(new Set(members.map((m) => m.id)).size).toBe(24);
+    expect(new Set(members.map((m) => m.id)).size).toBe(N);
+    expect(N % 2).toBe(0);
   });
 
   it('re-running migrations is idempotent and preserves pairings', async () => {
@@ -68,7 +96,7 @@ describe('roster and schema', () => {
     await db.migrate();
     await db.migrate();
     const again = (await db.as('anon', 'select * from public.list_members()')).rows;
-    expect(again).toHaveLength(24);
+    expect(again).toHaveLength(N);
     expect(again.map((m) => m.id).sort()).toEqual(members.map((m) => m.id).sort());
     expect(await allPairs()).toHaveLength(1);
     expect((await myPairing(t)).partner).toEqual(first.partner);
@@ -99,7 +127,7 @@ describe('pairing behaviour', () => {
     const t0 = await signIn(db, members, 0);
     const { partner } = await draw(t0);
     const progress = await db.rpc<Record<string, unknown>>('get_activity_progress');
-    expect(progress).toMatchObject({ paired_members: 2, unpaired_members: 22, pairs_completed: 1, total_pairs: 12, is_complete: false });
+    expect(progress).toMatchObject({ paired_members: 2, unpaired_members: N - 2, pairs_completed: 1, total_pairs: PAIRS, is_complete: false });
     const taken = new Set([members[0].id, partner!.id]);
     for (let i = 0; i < members.length; i++) {
       if (taken.has(members[i].id)) continue;
@@ -111,7 +139,7 @@ describe('pairing behaviour', () => {
     }
   });
 
-  it('4: the partner who never visited gets the existing pairing later (Ike → Gladys example)', async () => {
+  it('4: the partner who never visited gets the existing pairing later (Ike example)', async () => {
     const ike = indexOf('Ikechukwu Achom');
     const ikeToken = await signIn(db, members, ike);
     const ikeDraw = await draw(ikeToken);
@@ -150,12 +178,12 @@ describe('pairing behaviour', () => {
     expect(recovered).toMatchObject({ status: 'paired', partner: first.partner, paired_at: first.paired_at });
   });
 
-  it('10–11: all 24 members form exactly 12 disjoint pairs, then the activity is complete', async () => {
+  it('10–11: all members form exactly N/2 disjoint pairs, then the activity is complete', async () => {
     for (let i = 0; i < members.length; i++) await draw(await signIn(db, members, i));
     const pairs = await assertLedgerConsistent();
-    expect(pairs).toHaveLength(12);
+    expect(pairs).toHaveLength(PAIRS);
     const progress = await db.rpc<Record<string, unknown>>('get_activity_progress');
-    expect(progress).toMatchObject({ pairs_completed: 12, unpaired_members: 0, is_complete: true });
+    expect(progress).toMatchObject({ pairs_completed: PAIRS, unpaired_members: 0, is_complete: true });
     // Every member's view agrees with their partner's view.
     for (let i = 0; i < members.length; i++) {
       const mine = await myPairing(await signIn(db, members, i));
@@ -166,22 +194,22 @@ describe('pairing behaviour', () => {
   });
 
   it('reports no_partner_available when the pool is exhausted (odd roster)', async () => {
-    await db.as('postgres', `update public.members set is_active = false where id = $1`, [members[23].id]);
-    for (let i = 0; i < 22; i++) await draw(await signIn(db, members, i));
-    const res = await draw(await signIn(db, members, 22));
+    await db.as('postgres', `update public.members set is_active = false where id = $1`, [members[N - 1].id]);
+    for (let i = 0; i < N - 2; i++) await draw(await signIn(db, members, i));
+    const res = await draw(await signIn(db, members, N - 2));
     expect(res.status === 'existing' || res.status === 'no_partner_available').toBe(true);
     const progress = await db.rpc<Record<string, unknown>>('get_activity_progress');
-    expect(progress).toMatchObject({ total_members: 23, unpaired_members: 1, is_complete: true });
+    expect(progress).toMatchObject({ total_members: N - 1, unpaired_members: 1, is_complete: true });
   });
 });
 
 describe('concurrency', () => {
-  it('7: 24 simultaneous draws (separate connections) produce 12 consistent pairs', async () => {
+  it('7: every member drawing at once (separate connections) produces N/2 consistent pairs', async () => {
     const tokens = await Promise.all(members.map((_, i) => signIn(db, members, i)));
     const results = await Promise.all(tokens.map(draw));
     const pairs = await assertLedgerConsistent();
-    expect(pairs).toHaveLength(12);
-    expect(results.filter((r) => r.status === 'created')).toHaveLength(12);
+    expect(pairs).toHaveLength(PAIRS);
+    expect(results.filter((r) => r.status === 'created')).toHaveLength(PAIRS);
     results.forEach((r, i) => {
       const j = members.findIndex((m) => m.id === r.partner!.id);
       expect(results[j].partner!.id).toBe(members[i].id);
@@ -201,7 +229,7 @@ describe('concurrency', () => {
     // for several members, then release it so they all race the same pool.
     for (let round = 0; round < 5; round++) {
       await db.as('postgres', `select private.admin_reset_pairings('RESET ALL PAIRINGS')`);
-      const idx = [0, 1, 2, 3, 4, 5].map((k) => (k + round * 3) % 24);
+      const idx = [0, 1, 2, 3, 4, 5].map((k) => (k + round * 3) % N);
       const tokens = await Promise.all(idx.map((i) => signIn(db, members, i)));
       const holder = await db.pool.connect();
       try {

@@ -49,8 +49,8 @@ describe('organiser console', () => {
     expect([pairings[0].member_a, pairings[0].member_b].sort()).toEqual([members[0].name, (a.partner as Member).name].sort());
     expect(pairings[0].drawn_by).toBe(members[0].name);
     expect(pairings[0].created_at).toBeTruthy();
-    expect(overview.unpaired).toHaveLength(22);
-    expect(overview.progress).toMatchObject({ pairs_completed: 1, total_pairs: 12 });
+    expect(overview.unpaired).toHaveLength(members.length - 2);
+    expect(overview.progress).toMatchObject({ pairs_completed: 1, total_pairs: members.length / 2 });
 
     for (const bad of [null, '', 'f'.repeat(64)]) {
       expect((await db.rpc<Json>('admin_console_overview', [bad])).status).toBe('invalid_session');
