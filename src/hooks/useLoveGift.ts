@@ -4,7 +4,16 @@ import type { PersonalLink } from '../lib/personalLink';
 import { clearSession, loadSession, saveSession } from '../lib/sessionStore';
 import type { LoveGiftApi, Pairing, Session, SignInResult } from '../types/loveGift';
 
-export type RevealOrigin = 'created' | 'existing' | 'restored' | 'live';
+// 'drawn': the member pressed the button in this visit. This is shown the same
+// way whether the server created the pair just now or their partner drew them
+// earlier — every member gets their own "moment" of choosing.
+// 'restored': recovered after a page refresh.
+export type RevealOrigin = 'drawn' | 'restored';
+
+/** Minimum time the draw animation runs, so the moment feels like a draw. */
+export const DEFAULT_DRAW_SUSPENSE_MS = 2200;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export type Phase =
   | { kind: 'restoring' }
@@ -77,8 +86,9 @@ const OFFLINE_SIGN_IN: UiMessage = { tone: 'warning', title: 'No connection', bo
 /**
  * @param personalLink credentials from a personal sign-in link, read from the
  *   URL once at start-up; signs the member in automatically.
+ * @param drawSuspenseMs minimum duration of the draw animation (0 in tests).
  */
-export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null = null) {
+export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null = null, drawSuspenseMs = DEFAULT_DRAW_SUSPENSE_MS) {
   const [state, dispatch] = useReducer(reducer, { phase: { kind: 'restoring' }, message: null });
   // Latest phase for async callbacks (which must not capture a stale render).
   const phaseRef = useRef<Phase>(state.phase);
@@ -92,12 +102,16 @@ export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null 
 
   const runDraw = useCallback(async (session: Session) => {
     dispatch({ type: 'phase', phase: { kind: 'drawing', session } });
+    const startedAt = Date.now();
     try {
       const res = await api.drawPartner(session.token);
+      if (res.status === 'created' || res.status === 'existing' || res.status === 'no_partner_available') {
+        await delay(Math.max(0, drawSuspenseMs - (Date.now() - startedAt)));
+      }
       switch (res.status) {
         case 'created':
         case 'existing':
-          dispatch({ type: 'phase', phase: { kind: 'revealed', session, pairing: res.pairing, origin: res.status } });
+          dispatch({ type: 'phase', phase: { kind: 'revealed', session, pairing: res.pairing, origin: 'drawn' } });
           return;
         case 'no_partner_available':
           dispatch({ type: 'phase', phase: { kind: 'no_partner', session } });
@@ -111,14 +125,14 @@ export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null 
       // is safe because the server returns the existing pair.
       dispatch({ type: 'phase', phase: { kind: 'ready', session }, message: isNetworkError(error) ? NETWORK_DRAW_MESSAGE : serverMessage() });
     }
-  }, [api, resetToSignIn]);
+  }, [api, resetToSignIn, drawSuspenseMs]);
 
   // Ask the server (never local state) whether this member is already paired.
-  const showPairing = useCallback(async (session: Session, isCurrent: () => boolean, origin: RevealOrigin = 'restored') => {
+  const showPairing = useCallback(async (session: Session, isCurrent: () => boolean) => {
     try {
       const res = await api.getMyPairing(session.token);
       if (!isCurrent()) return;
-      if (res.status === 'paired') dispatch({ type: 'phase', phase: { kind: 'revealed', session, pairing: res.pairing, origin } });
+      if (res.status === 'paired') dispatch({ type: 'phase', phase: { kind: 'revealed', session, pairing: res.pairing, origin: 'restored' } });
       else if (res.status === 'unpaired') dispatch({ type: 'phase', phase: { kind: 'ready', session } });
       else resetToSignIn(null);
     } catch (error) {
@@ -133,8 +147,10 @@ export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null 
     }
   }, [api, resetToSignIn]);
 
-  // Personal link: sign in once. A ref (not the effect's cleanup) guards it,
-  // so React StrictMode's double effect run can't spend two sign-in attempts.
+  // Personal link: sign in once, then wait for the member to press the button —
+  // even if they're already paired, they still get to "draw" their partner.
+  // A ref (not the effect's cleanup) guards it, so React StrictMode's double
+  // effect run can't spend two sign-in attempts.
   const linkHandled = useRef(false);
   useEffect(() => {
     if (!personalLink || linkHandled.current) return;
@@ -147,13 +163,13 @@ export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null 
           return;
         }
         saveSession(res.session);
-        void showPairing(res.session, () => true, 'existing');
+        dispatch({ type: 'phase', phase: { kind: 'ready', session: res.session } });
       },
       (error) => {
         dispatch({ type: 'phase', phase: { kind: 'idle' }, message: isNetworkError(error) ? { ...OFFLINE_SIGN_IN, body: 'We couldn’t reach the server. Check your internet connection, then tap your link again.' } : serverMessage() });
       },
     );
-  }, [api, personalLink, resetToSignIn, showPairing]);
+  }, [api, personalLink, resetToSignIn]);
 
   // No link: recover this browser's session, if any.
   useEffect(() => {
@@ -201,7 +217,11 @@ export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null 
     }
   }, [api, runDraw]);
 
-  /** Called when live progress changes: a waiting member may just have been drawn by someone else. */
+  /**
+   * Called when live progress changes. Deliberately never reveals a partner on
+   * its own: a member who is drawn while waiting still presses the button.
+   * It only rescues the "no partner available" screen and expired sessions.
+   */
   const recheck = useCallback(async () => {
     const current = phaseRef.current;
     if (current.kind !== 'ready' && current.kind !== 'no_partner') return;
@@ -210,8 +230,8 @@ export function useLoveGift(api: LoveGiftApi, personalLink: PersonalLink | null 
       const res = await api.getMyPairing(current.session.token);
       const now = phaseRef.current;
       if (now.kind !== current.kind || now.session.token !== current.session.token) return;
-      if (res.status === 'paired') {
-        dispatch({ type: 'phase', phase: { kind: 'revealed', session: current.session, pairing: res.pairing, origin: 'live' } });
+      if (res.status === 'paired' && current.kind === 'no_partner') {
+        dispatch({ type: 'phase', phase: { kind: 'ready', session: current.session } });
       } else if (res.status === 'invalid_session') {
         resetToSignIn(SESSION_EXPIRED);
       }

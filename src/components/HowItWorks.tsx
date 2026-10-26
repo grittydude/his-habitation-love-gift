@@ -1,7 +1,7 @@
 const STEPS = [
-  { title: 'Sign in with your code', body: 'Pick your name and enter the personal access code the organiser sent you.' },
-  { title: 'One draw, saved instantly', body: 'Your partner is chosen at random on the server and saved for both of you straight away.' },
-  { title: 'Already chosen?', body: 'If someone drew your name first, signing in simply shows you who — no second draw.' },
+  { title: 'Open your personal link', body: 'Tap the link the organiser sent you privately — no password to remember.' },
+  { title: 'Choose your partner', body: 'Press the button and your Love Gift partner is picked at random and saved straight away.' },
+  { title: 'Keep it a surprise', body: 'Pray for them, prepare something thoughtful, and keep their name to yourself until Love Gift Day.' },
 ];
 
 export function HowItWorks() {

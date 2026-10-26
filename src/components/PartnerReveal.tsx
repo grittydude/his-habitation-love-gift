@@ -10,28 +10,19 @@ interface Props {
   onSignOut: () => void;
 }
 
-function copy(origin: RevealOrigin, pairing: Pairing): { kicker: string; body: string } {
-  const name = pairing.partner.name;
-  if (origin === 'created') {
-    return { kicker: 'Your Love Gift partner has been chosen!', body: 'This pairing is saved and final. Keep it a lovely surprise.' };
+// Never mentions who drew whom: from each member's point of view, they chose.
+function copy(origin: RevealOrigin): { kicker: string; body: string } {
+  if (origin === 'restored') {
+    return { kicker: 'Welcome back — here is your partner', body: 'Your pairing is saved. Keep it a lovely surprise.' };
   }
-  if (origin === 'live') {
-    return { kicker: 'You’ve just been chosen!', body: `${name} drew your name a moment ago, so your pairing is now saved.` };
-  }
-  return {
-    kicker: origin === 'restored' ? 'Welcome back — here is your partner' : 'Your partner was already chosen',
-    body: pairing.initiatedByMe
-      ? 'You drew this name earlier. Your pairing is saved and can’t be drawn again.'
-      : `${name} drew your name before you arrived, so your pairing was already saved.`,
-  };
+  return { kicker: 'Your Love Gift partner has been chosen!', body: 'This pairing is saved and final. Keep it a lovely surprise.' };
 }
 
 const BURST = Array.from({ length: 10 }, (_, i) => i);
 
 export function PartnerReveal({ pairing, origin, memberName, onSignOut }: Props) {
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const { kicker, body } = copy(origin, pairing);
-  const pairedAt = new Date(pairing.pairedAt);
+  const { kicker, body } = copy(origin);
 
   useEffect(() => { headingRef.current?.focus(); }, [pairing.partner.id]);
 
@@ -46,12 +37,9 @@ export function PartnerReveal({ pairing, origin, memberName, onSignOut }: Props)
         {pairing.partner.name}
       </h3>
       <p className="reveal__body">{body}</p>
-      <p className="reveal__saved">
-        <Check size={14} aria-hidden="true" /> Saved{' '}
-        <time dateTime={pairing.pairedAt}>
-          {pairedAt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-        </time>
-      </p>
+      {/* No timestamp here: a time before the member pressed the button would
+          give away that their partner drew them first. Organisers see times in /admin. */}
+      <p className="reveal__saved"><Check size={14} aria-hidden="true" /> Saved · only you can see this</p>
       <p className="reveal__note"><Heart size={14} aria-hidden="true" fill="currentColor" /> Pray for them, plan something thoughtful, and let love lead.</p>
       <button type="button" className="link-button reveal__signout" onClick={onSignOut}>
         <LogOut size={14} aria-hidden="true" /> Sign out on this device

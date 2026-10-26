@@ -1,6 +1,7 @@
 import { Heart, LoaderCircle, Users } from 'lucide-react';
 import type { MembersState } from '../hooks/useMembers';
 import type { Phase, UiMessage } from '../hooks/useLoveGift';
+import { DrawShuffle } from './DrawShuffle';
 import { Notice } from './Notice';
 import { PartnerReveal } from './PartnerReveal';
 import { SignInForm } from './SignInForm';
@@ -35,17 +36,16 @@ export function DrawCard({ phase, message, roster, activityComplete, onStart, on
           <p className="loading-line"><LoaderCircle className="spin" size={18} aria-hidden="true" /> Opening your personal link…</p>
         )}
 
-        {(phase.kind === 'idle' || (phase.kind === 'signing_in' && !phase.viaLink) || phase.kind === 'ready' || phase.kind === 'drawing') && (
+        {phase.kind === 'drawing' && (
+          <DrawShuffle names={roster.members.filter((m) => m.id !== phase.session.member.id).map((m) => m.name)} />
+        )}
+
+        {(phase.kind === 'idle' || (phase.kind === 'signing_in' && !phase.viaLink) || phase.kind === 'ready') && (
           <>
-            {phase.kind === 'drawing' && (
-              <div className="shuffle" aria-hidden="true">
-                <Heart className="shuffle__heart" size={30} fill="currentColor" />
-              </div>
-            )}
             <SignInForm
               roster={roster}
-              busy={phase.kind === 'signing_in' ? 'signing_in' : phase.kind === 'drawing' ? 'drawing' : null}
-              session={phase.kind === 'ready' || phase.kind === 'drawing' ? phase.session : null}
+              busy={phase.kind === 'signing_in' ? 'signing_in' : null}
+              session={phase.kind === 'ready' ? phase.session : null}
               activityComplete={activityComplete}
               onSubmit={onStart}
               onSignOut={onSignOut}

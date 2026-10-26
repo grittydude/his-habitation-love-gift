@@ -189,7 +189,23 @@ img, svg { display: block; }
 
 .loading-line { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 14px 0; }
 
-.shuffle { display: grid; place-items: center; padding: 4px 0 6px; color: var(--rose); }
+.shuffle-card {
+  display: grid; justify-items: center; gap: 12px; text-align: center;
+  padding: clamp(26px, 5vw, 40px) 20px; border-radius: 22px; color: var(--ivory);
+  background: radial-gradient(90% 70% at 50% 0%, rgba(226, 201, 141, 0.2), transparent 65%), linear-gradient(160deg, var(--forest-soft), var(--forest) 45%, var(--forest-deep));
+  box-shadow: inset 0 0 0 1px rgba(226, 201, 141, 0.35);
+  animation: unwrap 0.5s var(--ease) both;
+}
+.shuffle-card__drum {
+  min-height: 3.6rem; width: 100%; display: grid; place-items: center; overflow: hidden;
+  border-block: 1px solid rgba(226, 201, 141, 0.3); color: var(--rose);
+}
+.shuffle-card__name {
+  font-family: var(--serif); font-weight: 600; font-size: clamp(1.5rem, 6vw, 2.2rem); color: var(--gold-light);
+  animation: flick 0.09s linear both; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 100%;
+}
+.shuffle-card__hint { font-size: 0.85rem; color: rgba(251, 247, 238, 0.75); }
+@keyframes flick { from { transform: translateY(40%); opacity: 0.2; filter: blur(2px); } to { transform: none; opacity: 1; filter: none; } }
 .shuffle__heart { animation: beat 0.9s var(--ease) infinite; }
 @keyframes beat { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.22); } }
 

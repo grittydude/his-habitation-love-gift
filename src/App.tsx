@@ -11,10 +11,10 @@ import { useMembers } from './hooks/useMembers';
 import type { PersonalLink } from './lib/personalLink';
 import type { LoveGiftApi } from './types/loveGift';
 
-function Activity({ api, personalLink }: { api: LoveGiftApi; personalLink: PersonalLink | null }) {
+function Activity({ api, personalLink, drawSuspenseMs }: { api: LoveGiftApi; personalLink: PersonalLink | null; drawSuspenseMs?: number }) {
   const roster = useMembers(api);
   const progress = useActivityProgress(api);
-  const gift = useLoveGift(api, personalLink);
+  const gift = useLoveGift(api, personalLink, drawSuspenseMs);
   const { recheck } = gift;
   const { refresh } = progress;
   const pairedMembers = progress.progress?.pairedMembers;
@@ -61,14 +61,21 @@ function SetupNotice() {
   );
 }
 
-export default function App({ api, personalLink = null }: { api: LoveGiftApi | null; personalLink?: PersonalLink | null }) {
+interface AppProps {
+  api: LoveGiftApi | null;
+  personalLink?: PersonalLink | null;
+  /** Minimum draw-animation time; tests pass 0. */
+  drawSuspenseMs?: number;
+}
+
+export default function App({ api, personalLink = null, drawSuspenseMs }: AppProps) {
   return (
     <>
       <a className="skip-link" href="#draw">Skip to partner selection</a>
       <Hero />
       <main>
         <section id="draw" className="draw-section" aria-label="Choose your Love Gift partner">
-          {api ? <Activity api={api} personalLink={personalLink} /> : <SetupNotice />}
+          {api ? <Activity api={api} personalLink={personalLink} drawSuspenseMs={drawSuspenseMs} /> : <SetupNotice />}
         </section>
         <HowItWorks />
       </main>

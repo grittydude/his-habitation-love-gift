@@ -8,7 +8,7 @@ const NAMES = ['Ikechukwu Achom', 'Gladys HOTR', 'Hope Bass', 'Ime Okon'];
 
 async function setup(api = new FakeLoveGiftApi(NAMES)) {
   const user = userEvent.setup();
-  const view = render(<App api={api} />);
+  const view = render(<App drawSuspenseMs={0} api={api} />);
   await screen.findByRole('option', { name: NAMES[0] });
   return { api, user, view };
 }
@@ -57,9 +57,10 @@ describe('partner selection', () => {
     const { user } = await setup(api);
     await signInAndChoose(user, api, 'Gladys HOTR');
     const card = await reveal();
-    expect(within(card).getByText('Your partner was already chosen')).toBeInTheDocument();
+    // Gladys still gets her own "you chose" moment — no hint that Ike drew her.
+    expect(within(card).getByText('Your Love Gift partner has been chosen!')).toBeInTheDocument();
     expect(within(card).getByRole('heading', { name: 'Ikechukwu Achom' })).toBeInTheDocument();
-    expect(within(card).getByText(/drew your name before you arrived/)).toBeInTheDocument();
+    expect(card).not.toHaveTextContent(/drew|already/i);
     expect(api.pairs.size).toBe(2);
   });
 
@@ -78,7 +79,7 @@ describe('partner selection', () => {
     const partnerName = (await reveal()).querySelector('h3')!.textContent;
     first.view.unmount();
 
-    render(<App api={api} />);
+    render(<App drawSuspenseMs={0} api={api} />);
     const card = await reveal();
     expect(within(card).getByText(/Welcome back/)).toBeInTheDocument();
     expect(within(card).getByRole('heading', { name: partnerName! })).toBeInTheDocument();
@@ -93,7 +94,7 @@ describe('partner selection', () => {
     await reveal();
     first.view.unmount();
     api.sessions.clear();
-    render(<App api={api} />);
+    render(<App drawSuspenseMs={0} api={api} />);
     expect(await screen.findByLabelText('Select your name')).toBeInTheDocument();
     noReveal();
   });
@@ -123,7 +124,7 @@ describe('network failures', () => {
 
     await user.click(screen.getByRole('button', { name: /choose a partner/i }));
     const card = await reveal();
-    expect(within(card).getByText('Your partner was already chosen')).toBeInTheDocument();
+    expect(within(card).getByText('Your Love Gift partner has been chosen!')).toBeInTheDocument();
     expect(within(card).getByRole('heading', { name: api.members.find((m) => m.id === saved)!.name })).toBeInTheDocument();
     expect(api.pairs.size).toBe(2);
   });
@@ -140,7 +141,7 @@ describe('network failures', () => {
     const api = new FakeLoveGiftApi(NAMES);
     api.failNext('listMembers', { kind: 'network' });
     const user = userEvent.setup();
-    render(<App api={api} />);
+    render(<App drawSuspenseMs={0} api={api} />);
     expect(await screen.findByText('We couldn’t load the choir list')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /try again/i }));
     expect(await screen.findByRole('option', { name: 'Hope Bass' })).toBeInTheDocument();
@@ -191,7 +192,7 @@ describe('progress and realtime', () => {
     expect(panel).toHaveTextContent('1 of 2 pairs made');
   });
 
-  it('a waiting member is shown their partner as soon as someone else draws them', async () => {
+  it('a waiting member who gets drawn is not spoiled — they still press the button', async () => {
     const { api, user } = await setup();
     api.failNext('drawPartner', { kind: 'network' });
     await signInAndChoose(user, api, 'Gladys HOTR');
@@ -199,8 +200,11 @@ describe('progress and realtime', () => {
 
     api.pairOnServer('Ikechukwu Achom', 'Gladys HOTR');
     act(() => api.emitChange());
+    await waitFor(() => expect(screen.getByRole('complementary', { name: 'Activity progress' })).toHaveTextContent('1 of 2 pairs made'));
+    noReveal();
+    await user.click(screen.getByRole('button', { name: /choose a partner/i }));
     const card = await reveal();
-    expect(within(card).getByText('You’ve just been chosen!')).toBeInTheDocument();
+    expect(within(card).getByText('Your Love Gift partner has been chosen!')).toBeInTheDocument();
     expect(within(card).getByRole('heading', { name: 'Ikechukwu Achom' })).toBeInTheDocument();
   });
 
@@ -214,7 +218,7 @@ describe('progress and realtime', () => {
 
 describe('configuration', () => {
   it('explains when the site is not connected to a database', () => {
-    render(<App api={null} />);
+    render(<App drawSuspenseMs={0} api={null} />);
     expect(screen.getByRole('alert')).toHaveTextContent('This site isn’t connected yet');
   });
 });
@@ -222,7 +226,7 @@ describe('configuration', () => {
 describe('personal links', () => {
   async function openLink(api: FakeLoveGiftApi, name: string, code = api.codeFor(name)) {
     const user = userEvent.setup();
-    render(<App api={api} personalLink={{ memberId: api.member(name).id, code }} />);
+    render(<App drawSuspenseMs={0} api={api} personalLink={{ memberId: api.member(name).id, code }} />);
     return user;
   }
 
@@ -237,14 +241,30 @@ describe('personal links', () => {
     expect(api.calls.signIn).toBe(1);
   });
 
-  it('goes straight to the reveal when their partner already drew them', async () => {
+  it('still lets an already-drawn member press the button and "choose" their partner', async () => {
     const api = new FakeLoveGiftApi(NAMES);
     api.pairOnServer('Ikechukwu Achom', 'Gladys HOTR');
-    await openLink(api, 'Gladys HOTR');
+    const user = await openLink(api, 'Gladys HOTR');
+    expect(await screen.findByText('Welcome, Gladys HOTR!')).toBeInTheDocument();
+    noReveal();
+    await user.click(screen.getByRole('button', { name: /choose a partner/i }));
     const card = await reveal();
-    expect(within(card).getByText('Your partner was already chosen')).toBeInTheDocument();
+    expect(within(card).getByText('Your Love Gift partner has been chosen!')).toBeInTheDocument();
     expect(within(card).getByRole('heading', { name: 'Ikechukwu Achom' })).toBeInTheDocument();
-    expect(api.drawCalls).toBe(0);
+    expect(card).not.toHaveTextContent(/drew|already|\d{1,2}:\d{2}/i);
+    expect(api.pairs.size).toBe(2);
+  });
+
+  it('shows the name-shuffle animation while the draw is in progress', async () => {
+    const api = new FakeLoveGiftApi(NAMES);
+    const release = api.holdNext('drawPartner');
+    const user = await openLink(api, 'Hope Bass');
+    await screen.findByText('Welcome, Hope Bass!');
+    await user.click(screen.getByRole('button', { name: /choose a partner/i }));
+    expect(await screen.findByText('Choosing your Love Gift partner…')).toBeInTheDocument();
+    noReveal();
+    await act(async () => { release(); });
+    expect(await reveal()).toHaveTextContent('Your Love Gift partner has been chosen!');
   });
 
   it('explains an old or wrong link and falls back to the normal form', async () => {
